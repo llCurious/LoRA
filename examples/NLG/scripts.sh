@@ -1,3 +1,30 @@
+set -x
+
+enable_mlp=$1
+enable_wo=$2
+enable_wq=$3
+enable_wk=$4
+enable_wv=$5
+
+cmd_suffix=" "
+if [ "$enable_mlp" = true ]; then
+    cmd_suffix=$cmd_suffix"--enable_mlp "
+fi
+if [ "$enable_wo" = true ]; then
+    cmd_suffix=$cmd_suffix"--enable_wo "
+fi
+if [ "$enable_wq" = true ]; then
+    cmd_suffix=$cmd_suffix"--enable_wq "
+fi
+if [ "$enable_wk" = true ]; then
+    cmd_suffix=$cmd_suffix"--enable_wk "
+fi
+if [ "$enable_wv" = true ]; then
+    cmd_suffix=$cmd_suffix"--enable_wv "
+fi
+
+echo $cmd_suffix
+
 torchrun --nproc_per_node=1 src/gpt2_ft.py \
     --train_data ./data/e2e/train.jsonl \
     --valid_data ./data/e2e/valid.jsonl \
@@ -22,4 +49,6 @@ torchrun --nproc_per_node=1 src/gpt2_ft.py \
     --lora_dropout 0.1 \
     --label_smooth 0.1 \
     --work_dir ./trained_models/GPT2_M/e2e \
-    --random_seed 110
+    --random_seed 110 \
+    $cmd_suffix \
+    > lora_"$enable_mlp"_"$enable_wo"_"$enable_wq"_"$enable_wk"_"$enable_wv".out

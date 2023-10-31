@@ -104,17 +104,35 @@ class Attention(nn.Module):
         self.n_head = config.n_head
         self.split_size = n_state
         self.scale = scale
+
         self.c_attn = lora.MergedLinear(
             nx,
             n_state * 3,
             r=config.lora_attn_dim,
             lora_alpha=config.lora_attn_alpha,
             lora_dropout=config.lora_dropout,
-            enable_lora=[True, False, True],
+            enable_lora=[config.enable_wq, config.enable_wk, config.enable_wv],
             fan_in_fan_out=True,
             merge_weights=False,
         )
-        self.c_proj = Conv1D(n_state, nx)
+        print(
+            f"QKV Attention LoRA ({[config.enable_wq, config.enable_wk, config.enable_wv]}): {self.c_attn}"
+        )
+
+        if not config.enable_wo:
+            self.c_proj = Conv1D(n_state, nx)
+            print(f"O Attention not use LoRA: {self.c_proj}")
+        else:
+            self.c_proj = lora.GPTConv1D(
+                in_features=nx,
+                out_features=n_state,
+                r=config.lora_attn_dim,
+                lora_alpha=config.lora_attn_alpha,
+                lora_dropout=config.lora_dropout,
+                fan_in_fan_out=False,
+                merge_weights=False,
+            )
+            print(f"O Attention using LoRA: {self.c_proj}")
 
         self.config = config
 
@@ -213,28 +231,30 @@ class MLP(nn.Module):
         super(MLP, self).__init__()
         nx = config.n_embd
         # raw
-        # self.c_fc = Conv1D(n_state, nx)
-        # self.c_proj = Conv1D(nx, n_state)
-
-        # modified
-        self.c_fc = lora.GPTConv1D(
-            in_features=nx,
-            out_features=n_state,
-            r=config.lora_attn_dim,
-            lora_alpha=config.lora_attn_alpha,
-            lora_dropout=config.lora_dropout,
-            fan_in_fan_out=False,
-            merge_weights=False,
-        )
-        self.c_proj = lora.GPTConv1D(
-            in_features=n_state,
-            out_features=nx,
-            r=config.lora_attn_dim,
-            lora_alpha=config.lora_attn_alpha,
-            lora_dropout=config.lora_dropout,
-            fan_in_fan_out=False,
-            merge_weights=False,
-        )
+        if not config.enable_mlp:
+            self.c_fc = Conv1D(n_state, nx)
+            self.c_proj = Conv1D(nx, n_state)
+            print(f"MLP not use LoRA: {self.c_fc}, {self.c_proj}")
+        else:  # modified
+            self.c_fc = lora.GPTConv1D(
+                in_features=nx,
+                out_features=n_state,
+                r=config.lora_attn_dim,
+                lora_alpha=config.lora_attn_alpha,
+                lora_dropout=config.lora_dropout,
+                fan_in_fan_out=False,
+                merge_weights=False,
+            )
+            self.c_proj = lora.GPTConv1D(
+                in_features=n_state,
+                out_features=nx,
+                r=config.lora_attn_dim,
+                lora_alpha=config.lora_attn_alpha,
+                lora_dropout=config.lora_dropout,
+                fan_in_fan_out=False,
+                merge_weights=False,
+            )
+            print(f"MLP using LoRA: {self.c_fc}, {self.c_proj}")
 
         self.act = gelu
 
@@ -361,6 +381,11 @@ class GPT2Config(object):
         lora_dropout=0.0,
         lora_r_dropout=0.0,
         fix_dropout=0.0,
+        enable_mlp=False,
+        enable_wo=False,
+        enable_wq=True,
+        enable_wk=False,
+        enable_wv=True,
     ):
         self.vocab_size = vocab_size_or_config_json_file
         self.n_ctx = n_ctx
@@ -376,6 +401,11 @@ class GPT2Config(object):
         self.lora_r_dropout = lora_r_dropout
 
         self.fix_dropout = fix_dropout
+        self.enable_mlp = enable_mlp
+        self.enable_wo = enable_wo
+        self.enable_wq = enable_wq
+        self.enable_wk = enable_wk
+        self.enable_wv = enable_wv
 
 
 class GPT2LMModel(nn.Module):
