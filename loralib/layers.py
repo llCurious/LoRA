@@ -130,7 +130,9 @@ class Linear(nn.Linear, LoRALayer):
         if r > 0:
             self.lora_A = nn.Parameter(self.weight.new_zeros((r, in_features)))
             self.lora_B = nn.Parameter(self.weight.new_zeros((out_features, r)))
-            self.scaling = self.lora_alpha / self.r
+            # self.scaling = self.lora_alpha / self.r
+            self.scaling = nn.Parameter(torch.tensor(self.lora_alpha / self.r))
+
             # Freezing the pre-trained weight matrix
             self.weight.requires_grad = False
         self.reset_parameters()
@@ -430,7 +432,9 @@ class GPTConv1D(nn.Module, LoRALayer):
         if r > 0:
             self.lora_A = nn.Parameter(self.weight.new_zeros((r, in_features)))
             self.lora_B = nn.Parameter(self.weight.new_zeros((out_features, r)))
-            self.scaling = self.lora_alpha / self.r
+            # self.scaling = self.lora_alpha / self.r
+            self.scaling = nn.Parameter(torch.tensor(self.lora_alpha / self.r))
+
             # Freezing the pre-trained weight matrix
             self.weight.requires_grad = False
         self.reset_parameters()
@@ -462,18 +466,134 @@ class GPTConv1D(nn.Module, LoRALayer):
                 self.merged = True
 
     def forward(self, x: torch.Tensor):
-        def T(w):
-            return w.transpose(0, 1) if self.fan_in_fan_out else w
+        size_out = x.size()[:-1] + (self.out_feature,)
+        result = torch.addmm(self.bias, x.view(-1, x.size(-1)), self.weight)
+        result = result.view(*size_out)
 
         if self.r > 0 and not self.merged:
-            size_out = x.size()[:-1] + (self.out_feature,)
-            result = torch.addmm(self.bias, x.view(-1, x.size(-1)), self.weight)
-            result = result.view(*size_out)
             result += (
                 self.lora_dropout(x)
                 @ self.lora_A.transpose(0, 1)
                 @ self.lora_B.transpose(0, 1)
             ) * self.scaling
-            return result
-        else:
-            return F.linear(x, T(self.weight), bias=self.bias)
+        return result
+
+
+class PruneLayer:
+    def __init__(self, keep_flag: bool = True):
+        self.keep_flag = keep_flag
+
+    def set_keep_flag(self, keep_flag: bool = True):
+        self.keep_flag = keep_flag
+
+    def get_keep_flag(self):
+        return self.keep_flag
+
+
+class PruneMergedLinear(PruneLayer, MergedLinear):
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        r: int = 0,
+        lora_alpha: int = 1,
+        lora_dropout: float = 0,
+        enable_lora: List[bool] = [False],
+        fan_in_fan_out: bool = False,
+        merge_weights: bool = True,
+        keep_flag: List[bool] = [True],
+        **kwargs
+    ):
+        PruneLayer.__init__(self, keep_flag)
+        # set enable_lora to True if both enable_lora and keep_flag is True
+        enable_lora = [
+            (enable_lora[i] and self.keep_flag[i]) for i in range(len(enable_lora))
+        ]
+        MergedLinear.__init__(
+            self,
+            in_features,
+            out_features,
+            r,
+            lora_alpha,
+            lora_dropout,
+            enable_lora,
+            fan_in_fan_out,
+            merge_weights,
+            **kwargs
+        )
+
+        self.enable_lora = enable_lora
+        self.scaling = nn.Parameter(torch.tensor(self.lora_alpha / self.r))
+
+    def forward(self, x: torch.Tensor):
+        return MergedLinear.forward(self, x)
+
+
+class PruneGPTConv1D(PruneLayer, GPTConv1D):
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        r: int = 0,
+        lora_alpha: int = 1,
+        lora_dropout: float = 0,
+        fan_in_fan_out: bool = False,
+        merge_weights: bool = True,
+        keep_flag: bool = True,
+        **kwargs
+    ):
+        PruneLayer.__init__(self, keep_flag)
+        GPTConv1D.__init__(
+            self,
+            in_features,
+            out_features,
+            r,
+            lora_alpha,
+            lora_dropout,
+            fan_in_fan_out,
+            merge_weights,
+            **kwargs
+        )
+
+        # update scaling as thr
+        # self.scaling = nn.Parameter(torch.tensor(self.lora_alpha / self.r))
+
+    def forward(self, x: torch.Tensor):
+        if not self.keep_flag:
+            self.merged = True  # set merged to True to escape computing lora module
+        return GPTConv1D.forward(self, x)
+
+
+class PruneLinear(PruneLayer, Linear):
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        r: int = 0,
+        lora_alpha: int = 1,
+        lora_dropout: float = 0,
+        fan_in_fan_out: bool = False,
+        merge_weights: bool = True,
+        keep_flag: bool = True,
+        **kwargs
+    ):
+        PruneLayer.__init__(self, keep_flag)
+        Linear.__init__(
+            self,
+            in_features,
+            out_features,
+            r,
+            lora_alpha,
+            lora_dropout,
+            fan_in_fan_out,
+            merge_weights,
+            **kwargs
+        )
+
+        # update scaling as thr
+        # self.scaling = nn.Parameter(torch.tensor(self.lora_alpha / self.r))
+
+    def forward(self, x: torch.Tensor):
+        if not self.keep_flag:
+            self.merged = True  # set merged to True to escape computing lora module
+        return Linear.forward(self, x)

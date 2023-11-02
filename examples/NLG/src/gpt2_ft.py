@@ -140,6 +140,15 @@ parser.add_argument(
     "--enable_wv", action="store_true", help="use lora in Attention-value"
 )
 
+# prune parameters @zixiu
+parser.add_argument(
+    "--full-model-dir",
+    metavar="MODEL_DIR",
+    default="",
+)
+parser.add_argument("--n-pruning-universal", metavar="THR", default=0, type=float)
+parser.add_argument("--thr-pruning-proxy", metavar="THR", default=0.05, type=float)
+
 
 # influence model, calculate the influence score between two samples.
 def print_args(args):

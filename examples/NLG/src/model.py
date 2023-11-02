@@ -105,25 +105,63 @@ class Attention(nn.Module):
         self.split_size = n_state
         self.scale = scale
 
-        self.c_attn = lora.MergedLinear(
-            nx,
-            n_state * 3,
-            r=config.lora_attn_dim,
-            lora_alpha=config.lora_attn_alpha,
-            lora_dropout=config.lora_dropout,
-            enable_lora=[config.enable_wq, config.enable_wk, config.enable_wv],
-            fan_in_fan_out=True,
-            merge_weights=False,
-        )
-        print(
-            f"QKV Attention LoRA ({[config.enable_wq, config.enable_wk, config.enable_wv]}): {self.c_attn}"
-        )
+        if config.enable_wq:
+            self.q_atten = lora.PruneLinear(
+                nx,
+                n_state,
+                r=config.lora_attn_dim,
+                lora_alpha=config.lora_attn_alpha,
+                lora_dropout=config.lora_dropout,
+                fan_in_fan_out=True,
+                merge_weights=False,
+            )
+        else:
+            self.q_atten = nn.Linear(nx, n_state)
+
+        if config.enable_wk:
+            self.k_atten = lora.PruneLinear(
+                nx,
+                n_state,
+                r=config.lora_attn_dim,
+                lora_alpha=config.lora_attn_alpha,
+                lora_dropout=config.lora_dropout,
+                fan_in_fan_out=True,
+                merge_weights=False,
+            )
+        else:
+            self.k_atten = nn.Linear(nx, n_state)
+
+        if config.enable_wv:
+            self.v_atten = lora.PruneLinear(
+                nx,
+                n_state,
+                r=config.lora_attn_dim,
+                lora_alpha=config.lora_attn_alpha,
+                lora_dropout=config.lora_dropout,
+                fan_in_fan_out=True,
+                merge_weights=False,
+            )
+        else:
+            self.v_atten = nn.Linear(nx, n_state)
+        # self.c_attn = lora.MergedLinear(
+        #     nx,
+        #     n_state * 3,
+        #     r=config.lora_attn_dim,
+        #     lora_alpha=config.lora_attn_alpha,
+        #     lora_dropout=config.lora_dropout,
+        #     enable_lora=[config.enable_wq, config.enable_wk, config.enable_wv],
+        #     fan_in_fan_out=True,
+        #     merge_weights=False,
+        # )
+        # print(
+        #     f"QKV Attention LoRA ({[config.enable_wq, config.enable_wk, config.enable_wv]}): {self.c_attn}"
+        # )
 
         if not config.enable_wo:
             self.c_proj = Conv1D(n_state, nx)
             print(f"O Attention not use LoRA: {self.c_proj}")
         else:
-            self.c_proj = lora.GPTConv1D(
+            self.c_proj = lora.PruneGPTConv1D(
                 in_features=nx,
                 out_features=n_state,
                 r=config.lora_attn_dim,
@@ -131,6 +169,7 @@ class Attention(nn.Module):
                 lora_dropout=config.lora_dropout,
                 fan_in_fan_out=False,
                 merge_weights=False,
+                keep_flag=True,
             )
             print(f"O Attention using LoRA: {self.c_proj}")
 
@@ -176,8 +215,10 @@ class Attention(nn.Module):
     def forward(self, x, history=None, layer_past=None, len_past=None):
         hidden_states = x
 
-        x = self.c_attn(x)
-        query, key, value = x.split(self.split_size, dim=2)
+        # x = self.c_attn(x)
+        # query, key, value = x.split(self.split_size, dim=2)
+
+        query, key, value = self.q_atten(x), self.k_atten(x), self.v_atten(x)
 
         query = self.split_heads(query)
         key = self.split_heads(key, k=True)
@@ -236,7 +277,7 @@ class MLP(nn.Module):
             self.c_proj = Conv1D(nx, n_state)
             print(f"MLP not use LoRA: {self.c_fc}, {self.c_proj}")
         else:  # modified
-            self.c_fc = lora.GPTConv1D(
+            self.c_fc = lora.PruneGPTConv1D(
                 in_features=nx,
                 out_features=n_state,
                 r=config.lora_attn_dim,
@@ -244,8 +285,9 @@ class MLP(nn.Module):
                 lora_dropout=config.lora_dropout,
                 fan_in_fan_out=False,
                 merge_weights=False,
+                keep_flag=True,
             )
-            self.c_proj = lora.GPTConv1D(
+            self.c_proj = lora.PruneGPTConv1D(
                 in_features=n_state,
                 out_features=nx,
                 r=config.lora_attn_dim,
@@ -253,6 +295,7 @@ class MLP(nn.Module):
                 lora_dropout=config.lora_dropout,
                 fan_in_fan_out=False,
                 merge_weights=False,
+                keep_flag=True,
             )
             print(f"MLP using LoRA: {self.c_fc}, {self.c_proj}")
 
