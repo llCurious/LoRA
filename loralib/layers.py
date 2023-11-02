@@ -9,6 +9,7 @@ from torch.nn.parameter import Parameter
 
 import math
 from typing import Optional, List
+from abc import ABC, abstractmethod
 
 
 class LoRALayer:
@@ -131,7 +132,7 @@ class Linear(nn.Linear, LoRALayer):
             self.lora_A = nn.Parameter(self.weight.new_zeros((r, in_features)))
             self.lora_B = nn.Parameter(self.weight.new_zeros((out_features, r)))
             # self.scaling = self.lora_alpha / self.r
-            self.scaling = nn.Parameter(torch.tensor(self.lora_alpha / self.r))
+            self.lora_scaling = nn.Parameter(torch.tensor(self.lora_alpha / self.r))
 
             # Freezing the pre-trained weight matrix
             self.weight.requires_grad = False
@@ -155,13 +156,13 @@ class Linear(nn.Linear, LoRALayer):
             if self.merge_weights and self.merged:
                 # Make sure that the weights are not merged
                 if self.r > 0:
-                    self.weight.data -= T(self.lora_B @ self.lora_A) * self.scaling
+                    self.weight.data -= T(self.lora_B @ self.lora_A) * self.lora_scaling
                 self.merged = False
         else:
             if self.merge_weights and not self.merged:
                 # Merge the weights and mark it
                 if self.r > 0:
-                    self.weight.data += T(self.lora_B @ self.lora_A) * self.scaling
+                    self.weight.data += T(self.lora_B @ self.lora_A) * self.lora_scaling
                 self.merged = True
 
     def forward(self, x: torch.Tensor):
@@ -174,7 +175,7 @@ class Linear(nn.Linear, LoRALayer):
                 self.lora_dropout(x)
                 @ self.lora_A.transpose(0, 1)
                 @ self.lora_B.transpose(0, 1)
-            ) * self.scaling
+            ) * self.lora_scaling
             return result
         else:
             return F.linear(x, T(self.weight), bias=self.bias)
@@ -421,7 +422,8 @@ class GPTConv1D(nn.Module, LoRALayer):
             merge_weights=merge_weights,
         )
 
-        self.out_feature = out_features
+        self.in_features = in_features
+        self.out_features = out_features
         self.fan_in_fan_out = fan_in_fan_out
         w = torch.empty(in_features, out_features)
         nn.init.normal_(w, std=0.02)
@@ -432,8 +434,8 @@ class GPTConv1D(nn.Module, LoRALayer):
         if r > 0:
             self.lora_A = nn.Parameter(self.weight.new_zeros((r, in_features)))
             self.lora_B = nn.Parameter(self.weight.new_zeros((out_features, r)))
-            # self.scaling = self.lora_alpha / self.r
-            self.scaling = nn.Parameter(torch.tensor(self.lora_alpha / self.r))
+            # self.lora_scaling = self.lora_alpha / self.r
+            self.lora_scaling = nn.Parameter(torch.tensor(self.lora_alpha / self.r))
 
             # Freezing the pre-trained weight matrix
             self.weight.requires_grad = False
@@ -456,17 +458,17 @@ class GPTConv1D(nn.Module, LoRALayer):
             if self.merge_weights and self.merged:
                 # Make sure that the weights are not merged
                 if self.r > 0:
-                    self.weight.data -= T(self.lora_B @ self.lora_A) * self.scaling
+                    self.weight.data -= T(self.lora_B @ self.lora_A) * self.lora_scaling
                 self.merged = False
         else:
             if self.merge_weights and not self.merged:
                 # Merge the weights and mark it
                 if self.r > 0:
-                    self.weight.data += T(self.lora_B @ self.lora_A) * self.scaling
+                    self.weight.data += T(self.lora_B @ self.lora_A) * self.lora_scaling
                 self.merged = True
 
     def forward(self, x: torch.Tensor):
-        size_out = x.size()[:-1] + (self.out_feature,)
+        size_out = x.size()[:-1] + (self.out_features,)
         result = torch.addmm(self.bias, x.view(-1, x.size(-1)), self.weight)
         result = result.view(*size_out)
 
@@ -475,7 +477,7 @@ class GPTConv1D(nn.Module, LoRALayer):
                 self.lora_dropout(x)
                 @ self.lora_A.transpose(0, 1)
                 @ self.lora_B.transpose(0, 1)
-            ) * self.scaling
+            ) * self.lora_scaling
         return result
 
 
@@ -488,6 +490,14 @@ class PruneLayer:
 
     def get_keep_flag(self):
         return self.keep_flag
+
+    @abstractmethod
+    def complexity(self):
+        pass
+
+    @abstractmethod
+    def empirical_consumption(self, hardwares):
+        pass
 
 
 class PruneMergedLinear(PruneLayer, MergedLinear):
@@ -563,6 +573,12 @@ class PruneGPTConv1D(PruneLayer, GPTConv1D):
             self.merged = True  # set merged to True to escape computing lora module
         return GPTConv1D.forward(self, x)
 
+    def complexity(self):
+        return self.scaling * (self.r * self.in_features + self.out_features * self.r)
+
+    def empirical_consumption(self, hardwares):
+        return self.complexity()
+
 
 class PruneLinear(PruneLayer, Linear):
     def __init__(
@@ -597,3 +613,9 @@ class PruneLinear(PruneLayer, Linear):
         if not self.keep_flag:
             self.merged = True  # set merged to True to escape computing lora module
         return Linear.forward(self, x)
+
+    def complexity(self):
+        return self.scaling * (self.r * self.in_features + self.out_features * self.r)
+
+    def empirical_consumption(self, hardwares):
+        return self.complexity()
