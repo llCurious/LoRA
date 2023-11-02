@@ -1,3 +1,7 @@
+# data and metrics
+examples/NLG/data
+examples/NLG/eval/metrics
+
 # all files with SCRATCH prefix and large model / metric files
 **/SCRATCH*
 /pretrained_checkpoints
