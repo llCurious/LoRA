@@ -106,7 +106,7 @@ class Attention(nn.Module):
         self.scale = scale
 
         if config.enable_wq:
-            self.q_atten = lora.PruneLinear(
+            self.q_attn = lora.PruneLinear(
                 nx,
                 n_state,
                 r=config.lora_attn_dim,
@@ -116,10 +116,10 @@ class Attention(nn.Module):
                 merge_weights=False,
             )
         else:
-            self.q_atten = nn.Linear(nx, n_state)
+            self.q_attn = nn.Linear(nx, n_state)
 
         if config.enable_wk:
-            self.k_atten = lora.PruneLinear(
+            self.k_attn = lora.PruneLinear(
                 nx,
                 n_state,
                 r=config.lora_attn_dim,
@@ -129,10 +129,10 @@ class Attention(nn.Module):
                 merge_weights=False,
             )
         else:
-            self.k_atten = nn.Linear(nx, n_state)
+            self.k_attn = nn.Linear(nx, n_state)
 
         if config.enable_wv:
-            self.v_atten = lora.PruneLinear(
+            self.v_attn = lora.PruneLinear(
                 nx,
                 n_state,
                 r=config.lora_attn_dim,
@@ -142,7 +142,7 @@ class Attention(nn.Module):
                 merge_weights=False,
             )
         else:
-            self.v_atten = nn.Linear(nx, n_state)
+            self.v_attn = nn.Linear(nx, n_state)
         # self.c_attn = lora.MergedLinear(
         #     nx,
         #     n_state * 3,
@@ -218,7 +218,7 @@ class Attention(nn.Module):
         # x = self.c_attn(x)
         # query, key, value = x.split(self.split_size, dim=2)
 
-        query, key, value = self.q_atten(x), self.k_atten(x), self.v_atten(x)
+        query, key, value = self.q_attn(x), self.k_attn(x), self.v_attn(x)
 
         query = self.split_heads(query)
         key = self.split_heads(key, k=True)
@@ -568,6 +568,66 @@ class GPT2LMModel(nn.Module):
 
             if key.startswith("module.transformer."):
                 new_key = key[len("module.transformer.") :]
+            
+            if key.startswith("module.module.transformer."):
+                new_key = key[len("module.module.transformer.") :]
+
+            if new_key:
+                old_keys.append(key)
+                new_keys.append(new_key)
+
+        for old_key, new_key in zip(old_keys, new_keys):
+            state_dict[new_key] = state_dict.pop(old_key)
+        
+        # convert merged linear to splitted qkv linears
+        def split_attention_weights(state_dict):
+            state_dict_tmp = copy.deepcopy(state_dict)
+            attn_lists = ["q_attn", "k_attn", "v_attn"]
+            for n, p in state_dict.items():
+                if "c_attn" in n:
+                    module, name = n.split("c_attn.")
+                    dim = 0 if name == "bias" else 1
+                    split_size = p.shape[0] if name == "weight" else p.shape[0] // 3
+                    params = p.split(split_size, dim=dim)
+                    for i, attn in enumerate(attn_lists):
+                        # print(module+attn+"."+name)
+                        state_dict_tmp[module+attn+"."+name] = params[i]
+            return state_dict_tmp
+
+        state_dict = split_attention_weights(state_dict)
+
+        for n, p in self.transformer.named_parameters():
+            if n not in state_dict:
+                state_dict[n] = p
+
+        self.transformer.load_state_dict(state_dict, strict=False)
+        self.set_tied()
+    
+    def load_lora_weight(self, backbone_path, state_dict):
+        backbone_state_dict = torch.load(backbone_path)
+        self.load_weight(backbone_state_dict)
+
+        if "model_state_dict" in state_dict:
+            state_dict = state_dict["model_state_dict"]
+
+        state_dict_tmp = copy.deepcopy(state_dict)
+
+        old_keys = []
+        new_keys = []
+        for key in state_dict_tmp:
+            new_key = None
+            if key.endswith(".g"):
+                new_key = key[:-2] + ".weight"
+            elif key.endswith(".b"):
+                new_key = key[:-2] + ".bias"
+            elif key.endswith(".w"):
+                new_key = key[:-2] + ".weight"
+
+            if key.startswith("module.transformer."):
+                new_key = key[len("module.transformer.") :]
+            
+            if key.startswith("module.module.transformer."):
+                new_key = key[len("module.module.transformer.") :]
 
             if new_key:
                 old_keys.append(key)

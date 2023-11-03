@@ -148,6 +148,7 @@ parser.add_argument(
 )
 parser.add_argument("--n-pruning-universal", metavar="THR", default=0, type=float)
 parser.add_argument("--thr-pruning-proxy", metavar="THR", default=0.05, type=float)
+parser.add_argument("--complexity-coeff", default=0.05, type=float)
 
 
 # influence model, calculate the influence score between two samples.
@@ -282,7 +283,7 @@ def train_validate(
 
         if train_step % args.save_interval == 0:
             if args.rank == 0:
-                model_path = os.path.join(args.work_dir, f"model.{train_step}.pt")
+                model_path = os.path.join(args.work_dir, f"model.lora.{train_step}.pt")
                 print("saving checkpoint", model_path)
                 torch.save(
                     {"model_state_dict": lora.lora_state_dict(model)}, model_path
@@ -316,7 +317,7 @@ def train_validate(
             break
 
     if args.rank == 0:
-        model_path = os.path.join(args.work_dir, f"model.{train_step}.pt")
+        model_path = os.path.join(args.work_dir, f"model.total.{train_step}.pt")
         print("saving checkpoint", model_path)
         torch.save({"model_state_dict": model.state_dict()}, model_path)
     distributed_sync(args)
@@ -423,6 +424,7 @@ if __name__ == "__main__":
         lm_net.load_weight(torch.load(args.init_checkpoint))
 
     lm_net = lm_net.cuda()
+    lm_net = torch.nn.DataParallel(lm_net)
 
     if args.lora_dim > 0:
         lora.mark_only_lora_as_trainable(lm_net)
