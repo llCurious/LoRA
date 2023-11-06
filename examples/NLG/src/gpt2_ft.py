@@ -149,6 +149,7 @@ parser.add_argument(
 parser.add_argument("--n-pruning-universal", metavar="THR", default=0, type=float)
 parser.add_argument("--thr-pruning-proxy", metavar="THR", default=0.05, type=float)
 parser.add_argument("--complexity-coeff", default=0.05, type=float)
+parser.add_argument("--use-complexity", action="store_true")
 
 
 # influence model, calculate the influence score between two samples.
@@ -235,6 +236,7 @@ def train_validate(
 ):
     model.train()
     avg_lm_loss = AverageMeter()
+    avg_total_loss = AverageMeter()
     print("start to train the model................", epoch)
     log_start_time = time.time()
     best_val_ppl = None
@@ -254,11 +256,17 @@ def train_validate(
 
         _lm_loss = _lm_loss.mean()
 
+        # new loss function
+        if args.use_complexity:
+            total_loss = _lm_loss + args.complexity_coeff * lora.lora_complexity(model)
+            avg_total_loss.update(total_loss.item())
+
         train_step += 1
         is_update = True if train_step % args.grad_acc == 0 else False
         avg_lm_loss.update(_lm_loss.item())
+        
         optimizer_step(
-            _lm_loss / (args.grad_acc),
+            _lm_loss / (args.grad_acc) if not args.use_complexity else total_loss / (args.grad_acc),
             optimizer,
             model,
             scheduler,
@@ -273,13 +281,17 @@ def train_validate(
                 f"| epoch {epoch:3d} step {train_step:>8d} | { idx + 1:>6d} batches | "
                 f"lr {lr:.3g} | ms/batch {elapsed * 1000 / args.log_interval:5.2f} | "
                 f"loss {avg_lm_loss.val:5.2f} | avg loss {avg_lm_loss.avg:5.2f} | "
-                f"ppl {math.exp(avg_lm_loss.avg):5.2f}"
+                f"ppl {math.exp(avg_lm_loss.avg):5.2f} | "
+                f"total_loss {avg_total_loss.avg:5.2f}"
             )
 
             if args.rank == 0:
                 print(log_str)
             log_start_time = time.time()
             avg_lm_loss.reset()
+
+            if args.use_complexity:
+                avg_total_loss.reset()
 
         if train_step % args.save_interval == 0:
             if args.rank == 0:

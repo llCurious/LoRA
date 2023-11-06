@@ -574,7 +574,7 @@ class PruneGPTConv1D(PruneLayer, GPTConv1D):
         return GPTConv1D.forward(self, x)
 
     def complexity(self):
-        return self.scaling * (self.r * self.in_features + self.out_features * self.r)
+        return self.lora_scaling * (self.r * self.in_features + self.out_features * self.r)
 
     def empirical_consumption(self, hardwares):
         return self.complexity()
@@ -615,7 +615,7 @@ class PruneLinear(PruneLayer, Linear):
         return Linear.forward(self, x)
 
     def complexity(self):
-        return self.scaling * (self.r * self.in_features + self.out_features * self.r)
+        return self.lora_scaling * (self.r * self.in_features + self.out_features * self.r)
 
     def empirical_consumption(self, hardwares):
         return self.complexity()

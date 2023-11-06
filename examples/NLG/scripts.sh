@@ -5,6 +5,8 @@ enable_wo=$2
 enable_wq=$3
 enable_wk=$4
 enable_wv=$5
+complexity_penality=$6
+complexity_coeff=0.0000001
 
 cmd_suffix=" "
 if [ "$enable_mlp" = true ]; then
@@ -21,6 +23,10 @@ if [ "$enable_wk" = true ]; then
 fi
 if [ "$enable_wv" = true ]; then
     cmd_suffix=$cmd_suffix"--enable_wv "
+fi
+
+if [ "$complexity_penality" = true ]; then
+    cmd_suffix=$cmd_suffix"--use-complexity --complexity-coeff "$complexity_coeff
 fi
 
 echo $cmd_suffix
@@ -51,4 +57,4 @@ torchrun --nproc_per_node=1 src/gpt2_ft.py \
     --work_dir ./trained_models/GPT2_M/e2e \
     --random_seed 110 \
     $cmd_suffix \
-    > lora_"$enable_mlp"_"$enable_wo"_"$enable_wq"_"$enable_wk"_"$enable_wv".out
+    > lora_"$enable_mlp"_"$enable_wo"_"$enable_wq"_"$enable_wk"_"$enable_wv"_"$complexity_penality"_complexity_coeff_"$complexity_coeff".out

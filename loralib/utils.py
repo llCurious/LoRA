@@ -12,6 +12,14 @@ from .layers import LoRALayer, PruneLayer
 
 
 # Prune lora functionalities @zixiu
+def lora_complexity(model: nn.Module):
+    block_complexity, global_complexity = 0, 0
+    for m in model.modules():
+        if isinstance(m, PruneLayer):
+            block_complexity += m.complexity()
+    
+    return block_complexity
+
 def prune_lora(
     model: nn.Module,
     num_prune: int = None,
@@ -20,8 +28,8 @@ def prune_lora(
 ) -> None:
     loras, lora_layers, keep_flags = [], [], []
     for m in model.modules():
-        if isinstance(m, PruneLayer) and hasattr(m, "scaling"):
-            loras.append(m.scaling)
+        if isinstance(m, PruneLayer) and hasattr(m, "lora_scaling"):
+            loras.append(m.lora_scaling)
             lora_layers.append(m)
             keep_flags.append(True)
 
