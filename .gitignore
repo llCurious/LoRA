@@ -1,6 +1,7 @@
 # data and metrics
 examples/NLG/data
 examples/NLG/eval/metrics
+examples/NLG/tmp
 
 # all files with SCRATCH prefix and large model / metric files
 **/SCRATCH*
