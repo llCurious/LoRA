@@ -142,12 +142,14 @@ parser.add_argument(
 
 # prune parameters @zixiu
 parser.add_argument(
-    "--full-model-dir",
-    metavar="MODEL_DIR",
+    "--lora_path",
     default="",
 )
-parser.add_argument("--n-pruning-universal", metavar="THR", default=0, type=float)
-parser.add_argument("--thr-pruning-proxy", metavar="THR", default=0.05, type=float)
+parser.add_argument("--n_pruning", default=0, type=int)
+parser.add_argument("--thr_pruning", default=0.05, type=float)
+parser.add_argument("--percent_pruning", default=0, type=float)
+
+
 parser.add_argument("--complexity-coeff", default=0.05, type=float)
 parser.add_argument("--use-complexity", action="store_true")
 
@@ -264,9 +266,11 @@ def train_validate(
         train_step += 1
         is_update = True if train_step % args.grad_acc == 0 else False
         avg_lm_loss.update(_lm_loss.item())
-        
+
         optimizer_step(
-            _lm_loss / (args.grad_acc) if not args.use_complexity else total_loss / (args.grad_acc),
+            _lm_loss / (args.grad_acc)
+            if not args.use_complexity
+            else total_loss / (args.grad_acc),
             optimizer,
             model,
             scheduler,
@@ -295,7 +299,10 @@ def train_validate(
 
         if train_step % args.save_interval == 0:
             if args.rank == 0:
-                model_path = os.path.join(args.work_dir, f"model.lora.{train_step}.pt")
+                model_path = os.path.join(
+                    args.work_dir,
+                    f"model.{'ncp' if not args.use_complexity else 'cp'}.lora.{train_step}.pt",
+                )
                 print("saving checkpoint", model_path)
                 torch.save(
                     {"model_state_dict": lora.lora_state_dict(model)}, model_path
@@ -329,7 +336,10 @@ def train_validate(
             break
 
     if args.rank == 0:
-        model_path = os.path.join(args.work_dir, f"model.total.{train_step}.pt")
+        model_path = os.path.join(
+            args.work_dir,
+            f"model.{'ncp' if not args.use_complexity else 'cp'}.total.{train_step}.pt",
+        )
         print("saving checkpoint", model_path)
         torch.save({"model_state_dict": model.state_dict()}, model_path)
     distributed_sync(args)
@@ -432,8 +442,12 @@ if __name__ == "__main__":
 
     lm_net = GPT2LMModel(config)
     if args.init_checkpoint is not None:
-        print("loading model pretrained weight.")
-        lm_net.load_weight(torch.load(args.init_checkpoint))
+        if args.lora_path is None:
+            print("loading pre-trained backone.")
+            lm_net.load_weight(torch.load(args.init_checkpoint))
+        else:
+            print("loading pre-trained backone + lora.")
+            lm_net.load_lora_weight(args.init_checkpoint, args.lora_path)
 
     lm_net = lm_net.cuda()
     lm_net = torch.nn.DataParallel(lm_net)

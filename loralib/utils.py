@@ -29,16 +29,18 @@ def prune_lora(
     loras, lora_layers, keep_flags = [], [], []
     for m in model.modules():
         if isinstance(m, PruneLayer) and hasattr(m, "lora_scaling"):
-            loras.append(m.lora_scaling)
+            loras.append(m.lora_scaling.detach().cpu())
             lora_layers.append(m)
             keep_flags.append(True)
 
-    if num_prune is not None:
+    if num_prune is not None and num_prune > 0:
         to_rm = np.argsort(loras)[:num_prune]
-    elif percent_prune is not None:
+    elif percent_prune is not None and percent_prune > 0:
         to_rm = np.argsort(loras)[: int(len(loras) * percent_prune)]
-    elif thr_prune is not None:
+    elif thr_prune is not None and thr_prune > 0:
         to_rm = [i for i, lora in enumerate(loras) if lora < thr_prune]
+    else:
+        raise NotImplementedError(f"num_prune: {num_prune}, percent_prune: {percent_prune}, thr_prune: {thr_prune} is not implemented.")
 
     for rm_idx in to_rm:
         keep_flags[rm_idx] = False

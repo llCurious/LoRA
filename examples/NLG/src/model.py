@@ -603,8 +603,9 @@ class GPT2LMModel(nn.Module):
         self.transformer.load_state_dict(state_dict, strict=False)
         self.set_tied()
     
-    def load_lora_weight(self, backbone_path, state_dict):
+    def load_lora_weight(self, backbone_path, lora_path):
         backbone_state_dict = torch.load(backbone_path)
+        state_dict = torch.load(lora_path)
         self.load_weight(backbone_state_dict)
 
         if "model_state_dict" in state_dict:
