@@ -143,7 +143,7 @@ parser.add_argument(
 # prune parameters @zixiu
 parser.add_argument(
     "--lora_path",
-    default="",
+    default=None,
 )
 parser.add_argument("--n_pruning", default=0, type=int)
 parser.add_argument("--thr_pruning", default=0.05, type=float)

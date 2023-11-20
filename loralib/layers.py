@@ -41,7 +41,7 @@ class Embedding(nn.Embedding, LoRALayer):
         r: int = 0,
         lora_alpha: int = 1,
         merge_weights: bool = True,
-        **kwargs
+        **kwargs,
     ):
         nn.Embedding.__init__(self, num_embeddings, embedding_dim, **kwargs)
         LoRALayer.__init__(
@@ -115,7 +115,7 @@ class Linear(nn.Linear, LoRALayer):
         lora_dropout: float = 0.0,
         fan_in_fan_out: bool = False,  # Set this to True if the layer to replace stores weight like (fan_in, fan_out)
         merge_weights: bool = True,
-        **kwargs
+        **kwargs,
     ):
         nn.Linear.__init__(self, in_features, out_features, **kwargs)
         LoRALayer.__init__(
@@ -193,7 +193,7 @@ class MergedLinear(nn.Linear, LoRALayer):
         enable_lora: List[bool] = [False],
         fan_in_fan_out: bool = False,
         merge_weights: bool = True,
-        **kwargs
+        **kwargs,
     ):
         nn.Linear.__init__(self, in_features, out_features, **kwargs)
         LoRALayer.__init__(
@@ -296,7 +296,7 @@ class ConvLoRA(nn.Module, LoRALayer):
         lora_alpha=1,
         lora_dropout=0.0,
         merge_weights=True,
-        **kwargs
+        **kwargs,
     ):
         super(ConvLoRA, self).__init__()
         self.conv = conv_module(in_channels, out_channels, kernel_size, **kwargs)
@@ -411,7 +411,7 @@ class GPTConv1D(nn.Module, LoRALayer):
         lora_dropout: float = 0.0,
         fan_in_fan_out: bool = False,  # Set this to True if the layer to replace stores weight like (fan_in, fan_out)
         merge_weights: bool = True,
-        **kwargs
+        **kwargs,
     ):
         super(GPTConv1D, self).__init__()
         LoRALayer.__init__(
@@ -472,13 +472,15 @@ class GPTConv1D(nn.Module, LoRALayer):
         result = torch.addmm(self.bias, x.view(-1, x.size(-1)), self.weight)
         result = result.view(*size_out)
 
+        tmp = result
+
         if self.r > 0 and not self.merged:
             result += (
                 self.lora_dropout(x)
                 @ self.lora_A.transpose(0, 1)
                 @ self.lora_B.transpose(0, 1)
             ) * self.lora_scaling
-        return result
+        return result, tmp
 
 
 class PruneLayer:
@@ -512,7 +514,7 @@ class PruneMergedLinear(PruneLayer, MergedLinear):
         fan_in_fan_out: bool = False,
         merge_weights: bool = True,
         keep_flag: List[bool] = [True],
-        **kwargs
+        **kwargs,
     ):
         PruneLayer.__init__(self, keep_flag)
         # set enable_lora to True if both enable_lora and keep_flag is True
@@ -529,7 +531,7 @@ class PruneMergedLinear(PruneLayer, MergedLinear):
             enable_lora,
             fan_in_fan_out,
             merge_weights,
-            **kwargs
+            **kwargs,
         )
 
         self.enable_lora = enable_lora
@@ -550,7 +552,8 @@ class PruneGPTConv1D(PruneLayer, GPTConv1D):
         fan_in_fan_out: bool = False,
         merge_weights: bool = True,
         keep_flag: bool = True,
-        **kwargs
+        name: str = None,
+        **kwargs,
     ):
         PruneLayer.__init__(self, keep_flag)
         GPTConv1D.__init__(
@@ -562,19 +565,27 @@ class PruneGPTConv1D(PruneLayer, GPTConv1D):
             lora_dropout,
             fan_in_fan_out,
             merge_weights,
-            **kwargs
+            **kwargs,
         )
 
+        self.name = name
         # update scaling as thr
         # self.scaling = nn.Parameter(torch.tensor(self.lora_alpha / self.r))
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor, idx=None):
         if not self.keep_flag:
             self.merged = True  # set merged to True to escape computing lora module
-        return GPTConv1D.forward(self, x)
+
+        res, tmp = GPTConv1D.forward(self, x)
+        if idx is not None:
+            print(f"{idx}-{self.name}-act.pt")
+            torch.save(tmp, f"dist/{idx}-{self.name}-act.pt")
+        return res
 
     def complexity(self):
-        return self.lora_scaling * (self.r * self.in_features + self.out_features * self.r)
+        return self.lora_scaling * (
+            self.r * self.in_features + self.out_features * self.r
+        )
 
     def empirical_consumption(self, hardwares):
         return self.complexity()
@@ -591,7 +602,7 @@ class PruneLinear(PruneLayer, Linear):
         fan_in_fan_out: bool = False,
         merge_weights: bool = True,
         keep_flag: bool = True,
-        **kwargs
+        **kwargs,
     ):
         PruneLayer.__init__(self, keep_flag)
         Linear.__init__(
@@ -603,7 +614,7 @@ class PruneLinear(PruneLayer, Linear):
             lora_dropout,
             fan_in_fan_out,
             merge_weights,
-            **kwargs
+            **kwargs,
         )
 
         # update scaling as thr
@@ -615,7 +626,9 @@ class PruneLinear(PruneLayer, Linear):
         return Linear.forward(self, x)
 
     def complexity(self):
-        return self.lora_scaling * (self.r * self.in_features + self.out_features * self.r)
+        return self.lora_scaling * (
+            self.r * self.in_features + self.out_features * self.r
+        )
 
     def empirical_consumption(self, hardwares):
         return self.complexity()

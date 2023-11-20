@@ -170,6 +170,7 @@ class Attention(nn.Module):
                 fan_in_fan_out=False,
                 merge_weights=False,
                 keep_flag=True,
+                name="o_proj",
             )
             print(f"O Attention using LoRA: {self.c_proj}")
 
@@ -286,6 +287,7 @@ class MLP(nn.Module):
                 fan_in_fan_out=False,
                 merge_weights=False,
                 keep_flag=True,
+                name="fc",
             )
             self.c_proj = lora.PruneGPTConv1D(
                 in_features=n_state,
@@ -296,14 +298,15 @@ class MLP(nn.Module):
                 fan_in_fan_out=False,
                 merge_weights=False,
                 keep_flag=True,
+                name="proj",
             )
             print(f"MLP using LoRA: {self.c_fc}, {self.c_proj}")
 
-        self.act = gelu
+        self.act = torch.nn.ReLU()
 
-    def forward(self, x):
-        h = self.act(self.c_fc(x))
-        h2 = self.c_proj(h)
+    def forward(self, x, idx=None):
+        h = self.act(self.c_fc(x, idx))
+        h2 = self.c_proj(h, idx)
         return h2
 
 
@@ -316,10 +319,10 @@ class Block(nn.Module):
         self.ln_2 = LayerNorm(nx, eps=config.layer_norm_epsilon)
         self.mlp = MLP(4 * nx, config)
 
-    def forward(self, x, layer_past=None, len_past=None):
+    def forward(self, x, layer_past=None, len_past=None, idx=None):
         a, present = self.attn(self.ln_1(x), layer_past=layer_past, len_past=len_past)
         x = x + a
-        m = self.mlp(self.ln_2(x))
+        m = self.mlp(self.ln_2(x), idx)
         x = x + m
         return x, present
 
@@ -380,11 +383,13 @@ class GPT2Model(nn.Module):
             token_type_embeds = 0
         hidden_states = inputs_embeds + position_embeds + token_type_embeds
         presents = []
+        idx = 0
         for block, layer_past in zip(self.h, past):
             hidden_states, present = block(
-                hidden_states, layer_past=layer_past, len_past=len_past
+                hidden_states, layer_past=layer_past, len_past=len_past, idx=idx
             )
             presents.append(present)
+            idx += 1
         hidden_states = self.ln_f(hidden_states)
         output_shape = input_shape + (hidden_states.size(-1),)
         return hidden_states.view(*output_shape), presents
@@ -568,7 +573,7 @@ class GPT2LMModel(nn.Module):
 
             if key.startswith("module.transformer."):
                 new_key = key[len("module.transformer.") :]
-            
+
             if key.startswith("module.module.transformer."):
                 new_key = key[len("module.module.transformer.") :]
 
@@ -578,7 +583,7 @@ class GPT2LMModel(nn.Module):
 
         for old_key, new_key in zip(old_keys, new_keys):
             state_dict[new_key] = state_dict.pop(old_key)
-        
+
         # convert merged linear to splitted qkv linears
         def split_attention_weights(state_dict):
             state_dict_tmp = copy.deepcopy(state_dict)
@@ -591,7 +596,7 @@ class GPT2LMModel(nn.Module):
                     params = p.split(split_size, dim=dim)
                     for i, attn in enumerate(attn_lists):
                         # print(module+attn+"."+name)
-                        state_dict_tmp[module+attn+"."+name] = params[i]
+                        state_dict_tmp[module + attn + "." + name] = params[i]
             return state_dict_tmp
 
         state_dict = split_attention_weights(state_dict)
@@ -602,7 +607,7 @@ class GPT2LMModel(nn.Module):
 
         self.transformer.load_state_dict(state_dict, strict=False)
         self.set_tied()
-    
+
     def load_lora_weight(self, backbone_path, lora_path):
         backbone_state_dict = torch.load(backbone_path)
         state_dict = torch.load(lora_path)
@@ -626,7 +631,7 @@ class GPT2LMModel(nn.Module):
 
             if key.startswith("module.transformer."):
                 new_key = key[len("module.transformer.") :]
-            
+
             if key.startswith("module.module.transformer."):
                 new_key = key[len("module.module.transformer.") :]
 
