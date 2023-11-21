@@ -410,6 +410,7 @@ if __name__ == "__main__":
             enable_wq=args.enable_wq,
             enable_wk=args.enable_wk,
             enable_wv=args.enable_wv,
+            seq_len=args.seq_len,
         )
     elif args.model_card == "gpt2.md":
         config = GPT2Config(
@@ -424,6 +425,7 @@ if __name__ == "__main__":
             enable_wq=args.enable_wq,
             enable_wk=args.enable_wk,
             enable_wv=args.enable_wv,
+            seq_len=args.seq_len,
         )
     elif args.model_card == "gpt2.lg":
         config = GPT2Config(
@@ -438,6 +440,7 @@ if __name__ == "__main__":
             enable_wq=args.enable_wq,
             enable_wk=args.enable_wk,
             enable_wv=args.enable_wv,
+            seq_len=args.seq_len,
         )
 
     lm_net = GPT2LMModel(config)
@@ -454,6 +457,10 @@ if __name__ == "__main__":
 
     if args.lora_dim > 0:
         lora.mark_only_lora_as_trainable(lm_net)
+    
+    # sparsify activation codes
+    lora.mark_mask_as_not_trainable(lm_net)
+
     optimizer = create_adam_optimizer_from_args(lm_net, args)
 
     if args.max_step is None:

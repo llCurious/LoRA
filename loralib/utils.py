@@ -66,6 +66,11 @@ def mark_only_lora_as_trainable(model: nn.Module, bias: str = "none") -> None:
     else:
         raise NotImplementedError
 
+def mark_mask_as_not_trainable(model: nn.Module) -> None:
+    for n, p in model.named_parameters():
+        if "mask_" in n:
+            p.requires_grad = False
+            p.data = p.data.bool()
 
 def lora_state_dict(model: nn.Module, bias: str = "none") -> Dict[str, torch.Tensor]:
     my_state_dict = model.state_dict()

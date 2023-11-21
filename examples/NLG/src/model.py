@@ -213,7 +213,7 @@ class Attention(nn.Module):
                 0, 2, 1, 3
             ).contiguous()  # (batch, head, seq_length, head_features)
 
-    def forward(self, x, history=None, layer_past=None, len_past=None):
+    def forward(self, x, history=None, layer_past=None, len_past=None, idx=None):
         hidden_states = x
 
         # x = self.c_attn(x)
@@ -263,7 +263,7 @@ class Attention(nn.Module):
         )  # transpose to have same shapes for stacking
         a = self._attn(query, key, value, len_kv=len_kv)
         a = self.merge_heads(a)
-        a = self.c_proj(a)
+        a = self.c_proj(a, idx)
         return a, present
 
 
@@ -287,6 +287,9 @@ class MLP(nn.Module):
                 fan_in_fan_out=False,
                 merge_weights=False,
                 keep_flag=True,
+                sparsify_activation=config.sparsify_activation,
+                seq_length=config.seq_len,
+                static_sparsity=config.static_sparsity,
                 name="fc",
             )
             self.c_proj = lora.PruneGPTConv1D(
@@ -320,7 +323,7 @@ class Block(nn.Module):
         self.mlp = MLP(4 * nx, config)
 
     def forward(self, x, layer_past=None, len_past=None, idx=None):
-        a, present = self.attn(self.ln_1(x), layer_past=layer_past, len_past=len_past)
+        a, present = self.attn(self.ln_1(x), layer_past=layer_past, len_past=len_past, idx=idx)
         x = x + a
         m = self.mlp(self.ln_2(x), idx)
         x = x + m
@@ -434,6 +437,9 @@ class GPT2Config(object):
         enable_wq=True,
         enable_wk=False,
         enable_wv=True,
+        seq_len=512,
+        sparsify_activation=False,
+        static_sparsity=False,
     ):
         self.vocab_size = vocab_size_or_config_json_file
         self.n_ctx = n_ctx
@@ -454,6 +460,10 @@ class GPT2Config(object):
         self.enable_wq = enable_wq
         self.enable_wk = enable_wk
         self.enable_wv = enable_wv
+
+        self.seq_len = seq_len
+        self.sparsify_activation = sparsify_activation
+        self.static_sparsity = static_sparsity
 
 
 class GPT2LMModel(nn.Module):
@@ -554,6 +564,29 @@ class GPT2LMModel(nn.Module):
             module.weight.data.fill_(1.0)
         if isinstance(module, nn.Linear) and module.bias is not None:
             module.bias.data.zero_()
+
+    def load_tuned_total_weight(self, state_dict):
+        if "model_state_dict" in state_dict:
+            state_dict = state_dict["model_state_dict"]
+        
+        state_dict_tmp = copy.deepcopy(state_dict)
+        old_keys = []
+        new_keys = []
+        for key in state_dict_tmp:
+            new_key = None
+
+            if key.startswith("transformer."):
+                new_key = key[len("transformer.") :]
+
+            if new_key:
+                old_keys.append(key)
+                new_keys.append(new_key)
+
+        for old_key, new_key in zip(old_keys, new_keys):
+            state_dict[new_key] = state_dict.pop(old_key)
+            
+        self.transformer.load_state_dict(state_dict, strict=False)
+        self.set_tied()
 
     def load_weight(self, state_dict):
         if "model_state_dict" in state_dict:

@@ -110,6 +110,32 @@ elif args.task_name == "retrain":
         --n_pruning {args.n_pruning} \
         --percent_pruning {args.percent_pruning} \
         --thr_pruning {args.thr_pruning} "
+elif args.task_name == "sparse":
+    cmd = f"torchrun --nproc_per_node=1 src/gpt2_sparse_retrain.py \
+        --train_data ./data/e2e/train.jsonl \
+        --valid_data ./data/e2e/valid.jsonl \
+        --train_batch_size 8 \
+        --grad_acc 1 \
+        --valid_batch_size 4 \
+        --seq_len 512 \
+        --model_card gpt2.md \
+        --init_checkpoint {args.init_checkpoint} \
+        --platform local \
+        --clip 0.0 \
+        --lr 0.0002 \
+        --weight_decay 0.01 \
+        --correct_bias \
+        --adam_beta2 0.999 \
+        --scheduler linear \
+        --warmup_step 500 \
+        --max_epoch 5 \
+        --save_interval 1000 \
+        --lora_dim 4 \
+        --lora_alpha 32 \
+        --lora_dropout 0.1 \
+        --label_smooth 0.1 \
+        --work_dir {base_dir} \
+        --random_seed 110 "
 else:
     raise NotImplementedError(f"Task: {args.task_name} is not supported.")
 

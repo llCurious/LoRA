@@ -11,7 +11,21 @@ import math
 from typing import Optional, List
 from abc import ABC, abstractmethod
 
+def get_mask(data, method="neg", k=128):
+    # print(f"Input data of shape: {data.shape}")
 
+    if method == "neg":
+        mask = data < 0
+        return mask
+    elif method == "topk":
+        assert k is not None
+        topk, indices = torch.topk(data, k, dim=-1)
+        topk_mat = torch.zeros_like(data).scatter(-1, indices, topk)
+        mask = topk_mat == 0
+        return mask
+    else:
+        raise NotImplementedError(f"Get mask method: {method} is not supported.")
+    
 class LoRALayer:
     def __init__(
         self,
@@ -411,6 +425,9 @@ class GPTConv1D(nn.Module, LoRALayer):
         lora_dropout: float = 0.0,
         fan_in_fan_out: bool = False,  # Set this to True if the layer to replace stores weight like (fan_in, fan_out)
         merge_weights: bool = True,
+        sparsify_activation: bool = False,
+        seq_length: int = 0,
+        static_sparsity: bool = True,
         **kwargs,
     ):
         super(GPTConv1D, self).__init__()
@@ -430,6 +447,11 @@ class GPTConv1D(nn.Module, LoRALayer):
         self.weight = Parameter(w)
         self.bias = Parameter(torch.zeros(out_features))
 
+        # extra sparsity parameters
+        self.sparsify_activation = sparsify_activation
+        self.seq_length = seq_length
+        self.static_sparsity = static_sparsity
+
         # Actual trainable parameters
         if r > 0:
             self.lora_A = nn.Parameter(self.weight.new_zeros((r, in_features)))
@@ -439,6 +461,10 @@ class GPTConv1D(nn.Module, LoRALayer):
 
             # Freezing the pre-trained weight matrix
             self.weight.requires_grad = False
+        
+        if self.sparsify_activation:
+            self.mask_act = Parameter(torch.ones(self.seq_length, self.out_features).bool(), requires_grad=False)
+        
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -480,6 +506,39 @@ class GPTConv1D(nn.Module, LoRALayer):
                 @ self.lora_A.transpose(0, 1)
                 @ self.lora_B.transpose(0, 1)
             ) * self.lora_scaling
+        
+        # sprsify the activation according to mask
+        if self.sparsify_activation:
+            if not self.static_sparsity:
+                # print(f"Sparsify the activations with shape: {result.shape}")
+                
+                def get_common_position(data):
+                    mask_list = []
+                    n_samples = data.shape[0]
+                    for i in range(n_samples):
+                        # print(data[i])
+                        mask_ = get_mask(data[i], method="neg")
+                        # print(mask_)
+                        mask_list.append(mask_)
+                    return mask_list
+                
+                # 1. calculate mask
+                mask_list = get_common_position(result)
+                assert len(mask_list) > 0, f"Not enough sampels: n_sample: {len(mask_list)}"
+
+                mask = self.mask_act.data
+                for i in range(1, len(mask_list)):
+                    mask = mask & mask_list[i]
+
+                self.mask_act = Parameter(mask, requires_grad=False)
+                print(f"Sparsify ratio: {torch.sum(self.mask_act).float() / self.mask_act.shape[0] / self.mask_act.shape[1]}")
+            else:
+            # 2. mask activation
+                n_samples = result.shape[0]
+                for i in range(n_samples):
+                    # print(result[i])
+                    result[i].data[self.mask_act] = 0
+                    # print(result[i])
         return result, tmp
 
 
@@ -553,6 +612,9 @@ class PruneGPTConv1D(PruneLayer, GPTConv1D):
         merge_weights: bool = True,
         keep_flag: bool = True,
         name: str = None,
+        sparsify_activation: bool = False,
+        seq_length: int = 0,
+        static_sparsity: bool = True,
         **kwargs,
     ):
         PruneLayer.__init__(self, keep_flag)
@@ -565,6 +627,9 @@ class PruneGPTConv1D(PruneLayer, GPTConv1D):
             lora_dropout,
             fan_in_fan_out,
             merge_weights,
+            sparsify_activation,
+            seq_length,
+            static_sparsity,
             **kwargs,
         )
 
@@ -577,9 +642,9 @@ class PruneGPTConv1D(PruneLayer, GPTConv1D):
             self.merged = True  # set merged to True to escape computing lora module
 
         res, tmp = GPTConv1D.forward(self, x)
-        if idx is not None:
-            print(f"{idx}-{self.name}-act.pt")
-            torch.save(tmp, f"dist/{idx}-{self.name}-act.pt")
+        # if idx is not None:
+        #     print(f"{idx}-{self.name}-act.pt")
+        #     torch.save(tmp, f"dist/{idx}-{self.name}-act.pt")
         return res
 
     def complexity(self):

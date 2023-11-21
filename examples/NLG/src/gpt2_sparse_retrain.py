@@ -139,7 +139,7 @@ parser.add_argument(
 # prune parameters @zixiu
 parser.add_argument(
     "--lora_path",
-    required=True,
+    required=False,
 )
 parser.add_argument("--n_pruning", default=0, type=int)
 parser.add_argument("--thr_pruning", default=0.05, type=float)
@@ -406,6 +406,8 @@ if __name__ == "__main__":
             enable_wk=args.enable_wk,
             enable_wv=args.enable_wv,
             seq_len=args.seq_len,
+            sparsify_activation=True,
+            static_sparsity=True,
         )
     elif args.model_card == "gpt2.md":
         config = GPT2Config(
@@ -421,6 +423,8 @@ if __name__ == "__main__":
             enable_wk=args.enable_wk,
             enable_wv=args.enable_wv,
             seq_len=args.seq_len,
+            sparsify_activation=True,
+            static_sparsity=True,
         )
     elif args.model_card == "gpt2.lg":
         config = GPT2Config(
@@ -436,19 +440,22 @@ if __name__ == "__main__":
             enable_wk=args.enable_wk,
             enable_wv=args.enable_wv,
             seq_len=args.seq_len,
+            sparsify_activation=True,
+            static_sparsity=True,
         )
 
     lm_net = GPT2LMModel(config)
-    if args.init_checkpoint is not None:
-        if args.lora_path is None:
-            print("loading pre-trained backone.")
-            lm_net.load_weight(torch.load(args.init_checkpoint))
-        else:
-            print("loading pre-trained backone + lora.")
-            lm_net.load_lora_weight(args.init_checkpoint, args.lora_path)
+    lm_net.load_tuned_total_weight(torch.load(args.init_checkpoint))
+    # if args.init_checkpoint is not None:
+    #     if args.lora_path is None:
+    #         print(f"loading pre-trained backone: {args.init_checkpoint}.")
+    #         lm_net.load_weight(torch.load(args.init_checkpoint), tuned=True)
+    #     else:
+    #         print(f"loading pre-trained backone: {args.init_checkpoint} + lora: {args.lora_path}.")
+    #         lm_net.load_lora_weight(args.init_checkpoint, args.lora_path)
 
     # prune loras
-    lora.prune_lora(lm_net, num_prune=args.n_pruning, percent_prune=args.percent_pruning, thr_prune=args.thr_pruning)
+    # lora.prune_lora(lm_net, num_prune=args.n_pruning, percent_prune=args.percent_pruning, thr_prune=args.thr_pruning)
 
     lm_net = lm_net.cuda()
     lm_net = torch.nn.DataParallel(lm_net)
