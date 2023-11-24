@@ -84,7 +84,7 @@ class Conv1D(nn.Module):
         self.weight = Parameter(w)
         self.bias = Parameter(torch.zeros(nf))
 
-    def forward(self, x):
+    def forward(self, x, idx=None):
         size_out = x.size()[:-1] + (self.nf,)
         x = torch.addmm(self.bias, x.view(-1, x.size(-1)), self.weight)
         x = x.view(*size_out)
@@ -273,11 +273,9 @@ class MLP(nn.Module):
         super(MLP, self).__init__()
         nx = config.n_embd
         # raw
-        if not config.enable_mlp:
+        if not config.enable_mlp_fc:
             self.c_fc = Conv1D(n_state, nx)
-            self.c_proj = Conv1D(nx, n_state)
-            print(f"MLP not use LoRA: {self.c_fc}, {self.c_proj}")
-        else:  # modified
+        else:
             self.c_fc = lora.PruneGPTConv1D(
                 in_features=nx,
                 out_features=n_state,
@@ -292,6 +290,10 @@ class MLP(nn.Module):
                 static_sparsity=config.static_sparsity,
                 name="fc",
             )
+        
+        if not config.enable_mlp_proj:
+            self.c_proj = Conv1D(nx, n_state)
+        else:  # modified
             self.c_proj = lora.PruneGPTConv1D(
                 in_features=n_state,
                 out_features=nx,
@@ -303,7 +305,7 @@ class MLP(nn.Module):
                 keep_flag=True,
                 name="proj",
             )
-            print(f"MLP using LoRA: {self.c_fc}, {self.c_proj}")
+        print(f"MLP LoRA: FC: {config.enable_mlp_fc}, Proj: {config.enable_mlp_proj}")
 
         self.act = torch.nn.ReLU()
 
@@ -432,7 +434,8 @@ class GPT2Config(object):
         lora_dropout=0.0,
         lora_r_dropout=0.0,
         fix_dropout=0.0,
-        enable_mlp=False,
+        enable_mlp_fc=False,
+        enable_mlp_proj=False,
         enable_wo=False,
         enable_wq=True,
         enable_wk=False,
@@ -455,7 +458,8 @@ class GPT2Config(object):
         self.lora_r_dropout = lora_r_dropout
 
         self.fix_dropout = fix_dropout
-        self.enable_mlp = enable_mlp
+        self.enable_mlp_fc = enable_mlp_fc
+        self.enable_mlp_proj = enable_mlp_proj
         self.enable_wo = enable_wo
         self.enable_wq = enable_wq
         self.enable_wk = enable_wk

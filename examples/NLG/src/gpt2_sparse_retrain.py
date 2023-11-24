@@ -122,7 +122,8 @@ parser.add_argument(
 )
 
 # lora quant parameters @zixiu
-parser.add_argument("--enable_mlp", action="store_true", help="use lora in MLP")
+parser.add_argument("--enable_mlp_fc", action="store_true", help="use lora in MLP fc")
+parser.add_argument("--enable_mlp_proj", action="store_true", help="use lora in MLP proj")
 parser.add_argument(
     "--enable_wo", action="store_true", help="use lora in Attention-output"
 )
@@ -400,7 +401,8 @@ if __name__ == "__main__":
             lora_attn_dim=args.lora_dim,
             lora_attn_alpha=args.lora_alpha,
             lora_dropout=args.lora_dropout,
-            enable_mlp=args.enable_mlp,
+            enable_mlp_fc=args.enable_mlp_fc,
+            enable_mlp_proj=args.enable_mlp_proj,
             enable_wo=args.enable_wo,
             enable_wq=args.enable_wq,
             enable_wk=args.enable_wk,
@@ -417,7 +419,8 @@ if __name__ == "__main__":
             lora_attn_dim=args.lora_dim,
             lora_attn_alpha=args.lora_alpha,
             lora_dropout=args.lora_dropout,
-            enable_mlp=args.enable_mlp,
+            enable_mlp_fc=args.enable_mlp_fc,
+            enable_mlp_proj=args.enable_mlp_proj,
             enable_wo=args.enable_wo,
             enable_wq=args.enable_wq,
             enable_wk=args.enable_wk,
@@ -434,7 +437,8 @@ if __name__ == "__main__":
             lora_attn_dim=args.lora_dim,
             lora_attn_alpha=args.lora_alpha,
             lora_dropout=args.lora_dropout,
-            enable_mlp=args.enable_mlp,
+            enable_mlp_fc=args.enable_mlp_fc,
+            enable_mlp_proj=args.enable_mlp_proj,
             enable_wo=args.enable_wo,
             enable_wq=args.enable_wq,
             enable_wk=args.enable_wk,

@@ -6,7 +6,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--task_name", type=str)
 
 parser.add_argument("--lora_type", type=str, default="qkvom")
-parser.add_argument("--enable_mlp", action="store_true")
+parser.add_argument("--enable_mlp_fc", action="store_true")
+parser.add_argument("--enable_mlp_proj", action="store_true")
 parser.add_argument("--enable_wo", action="store_true")
 parser.add_argument("--enable_wq", action="store_true")
 parser.add_argument("--enable_wk", action="store_true")
@@ -34,8 +35,10 @@ if "v" in lora_type:
     args.enable_wv = True
 if "o" in lora_type:
     args.enable_wo = True
-if "m" in lora_type:
-    args.enable_mlp = True
+if "f" in lora_type:
+    args.enable_mlp_fc = True
+if "p" in lora_type:
+    args.enable_mlp_proj = True
 # lora_type = f"{'mlp' if args.enable_mlp else ''}_{'q' if args.enable_wq else ''}_{'k' if args.enable_wk else ''}_{'v' if args.enable_wv else ''}_{'wo' if args.enable_wo else ''}"
 print(f"lora type: {lora_type}")
 
@@ -139,8 +142,10 @@ elif args.task_name == "sparse":
 else:
     raise NotImplementedError(f"Task: {args.task_name} is not supported.")
 
-if args.enable_mlp:
-    cmd += " --enable_mlp"
+if args.enable_mlp_fc:
+    cmd += " --enable_mlp_fc"
+if args.enable_mlp_proj:
+    cmd += " --enable_mlp_proj"
 if args.enable_wo:
     cmd += " --enable_wo"
 if args.enable_wq:
