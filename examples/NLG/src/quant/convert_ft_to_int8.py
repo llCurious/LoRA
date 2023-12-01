@@ -85,7 +85,7 @@ def main():
 
 
     start = time.time()
-    if args.model_name == "gpt2":
+    if args.model_name.startswith("gpt2"):
         prefix = "transformer.h"
     elif args.model_name == "opt":
         prefix = "model.decoder.layers"
@@ -104,7 +104,7 @@ def main():
     torch.save(decoder_layer_scales, weights_path)
 
     print(f"{'='*10}\tStart int8 conversion...\t{'='*10}")
-    if args.model_name == "gpt2":
+    if args.model_name.startswith("gpt2"):
         int8_model = Int8GPT2LMHeadModel.from_float(model, decoder_layer_scales)
     elif args.model_name == "opt":
         int8_model = Int8OPTForCausalLM.from_float(model, decoder_layer_scales)

@@ -13,6 +13,12 @@ if args.task_name == "gpt2":
     --model_path ~/.cache/huggingface/transformers/gpt2 \
     --output_dir tmp \
     --dataset_name wikitext"
+elif args.task_name == "gpt2-wikitext-103":
+    cmd = f"python -m quant.convert_ft_to_int8 \
+    --model_name gpt2-wikitext-103 \
+    --model_path ~/.cache/huggingface/transformers/gpt2-wikitext-103 \
+    --output_dir tmp \
+    --dataset_name wikitext"
 elif args.task_name == "opt":
     cmd = f"python -m quant.convert_ft_to_int8 \
     --model_name opt \
