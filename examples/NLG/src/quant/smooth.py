@@ -11,7 +11,7 @@ import functools
 from collections import defaultdict
 import numpy as np
 
-from .data_utils import get_dataset
+from ..utils.data_utils import get_dataset
 
 @torch.no_grad()
 def get_static_decoder_layer_scales(model,
