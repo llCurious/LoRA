@@ -119,6 +119,9 @@ class Int8GPT2Attention(nn.Module):
 
         self.pruned_heads = set()
     
+    def _shape(self, tensor: torch.Tensor, seq_len: int, bsz: int):
+        return tensor.view(bsz, seq_len, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
+    
     @staticmethod
     def from_float(module,
                    config,
@@ -157,7 +160,12 @@ class Int8GPT2Attention(nn.Module):
     
 
     def _attn(self, query, key, value, attention_mask=None, head_mask=None):
-        # attn_weights = torch.matmul(query, key.transpose(-1, -2))
+        bsz = query.size()[0]
+        proj_shape = (bsz * self.num_heads, -1, self.head_dim)
+
+        query = query.view(*proj_shape)
+        key = key.view(*proj_shape)
+        value = value.view(*proj_shape)
         attn_weights = self.qk_bmm(query, key)
 
         if self.scale_attn_weights:
@@ -197,8 +205,11 @@ class Int8GPT2Attention(nn.Module):
         attn_weights.mul_(127).round_()
         attn_weights = attn_weights.to(torch.int8)
 
-        value_states = value_states.transpose(1, 2).contiguous()
-        attn_output = self.pv_bmm(attn_weights, value_states)
+        value = value.transpose(1, 2).contiguous()
+        attn_weights = attn_weights.view(bsz*self.num_heads, attn_weights.size()[-2], attn_weights.size()[-1])
+        attn_output = self.pv_bmm(attn_weights, value)
+        attn_output = attn_output.view(
+            bsz, self.num_heads, -1, self.head_dim)
         # attn_output = torch.matmul(attn_weights, value)
 
         return attn_output, attn_weights
@@ -262,8 +273,8 @@ class Int8GPT2MLP(nn.Module):
         hidden_size = config.hidden_size
         # self.c_fc = Conv1D(intermediate_size, embed_dim)
         # self.c_proj = Conv1D(embed_dim, intermediate_size)
-        self.c_fc = W8A8B8O8Conv1DReLU(hidden_size, intermediate_size)
-        self.c_proj = W8A8BFP32OFP32Conv1D(intermediate_size, hidden_size)
+        self.c_fc = W8A8B8O8Conv1DReLU(intermediate_size, hidden_size)
+        self.c_proj = W8A8BFP32OFP32Conv1D(hidden_size, intermediate_size)
         # self.act = ACT2FN[config.activation_function]
         self.act = torch.nn.ReLU()
         self.dropout = nn.Dropout(config.resid_pdrop)
@@ -299,7 +310,7 @@ class Int8GPT2Block(nn.Module):
         self.ln_1 = LayerNormQ(hidden_size, eps=config.layer_norm_epsilon)
         self.ln_2 = LayerNormQ(hidden_size, eps=config.layer_norm_epsilon)
         
-        self.mlp = GPT2MLP(inner_dim, config)
+        self.mlp = Int8GPT2MLP(inner_dim, config)
 
     @staticmethod
     def from_float(module: GPT2Block,
