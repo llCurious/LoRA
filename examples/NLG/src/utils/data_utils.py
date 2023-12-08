@@ -49,4 +49,6 @@ default_params = {
     "qnli": {"num_train_epochs": 10, "max_seq_length": 128},
     "rte": {"num_train_epochs": 50, "max_seq_length": 128},
     "imdb": {"num_train_epochs": 30, "max_seq_length": 512},
+    "wikitext": {"num_train_epochs": 1, "max_seq_length": 50},
+    "lambada": {"num_train_epochs": 1, "max_seq_length": 512},
 }

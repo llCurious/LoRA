@@ -4,6 +4,8 @@ from torch.nn import CrossEntropyLoss
 import torch
 
 def simple_accuracy(preds, labels):
+    preds = preds.numpy()
+    labels = labels.numpy()
     return (preds == labels).mean()
 
 
@@ -72,7 +74,7 @@ def compute_metrics(task_name, preds, labels):
         return {"acc": simple_accuracy(preds, labels)}
     elif task_name == "imdb":
         return {"imdb": simple_accuracy(preds, labels)}
-    elif task_name == "wiki":
+    elif task_name == "wikitext":
         return {"ppl": simple_ppl(preds, labels)}
     elif task_name == "lambada":
         return {"ppl": simple_ppl(preds, labels)}

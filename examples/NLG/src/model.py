@@ -592,7 +592,8 @@ class GPT2LMModel(nn.Module):
         self.transformer.load_state_dict(state_dict, strict=False)
         self.set_tied()
 
-    def load_weight(self, state_dict):
+    def load_weight(self, raw_path):
+        state_dict = torch.load(raw_path)
         if "model_state_dict" in state_dict:
             state_dict = state_dict["model_state_dict"]
 
